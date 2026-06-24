@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# DANE i artefakty runtime — NIGDY do repo (to anonimizator!)
+# mapa.json = mapa DE-anonimizacji (tag -> oryginal), najwrazliwszy plik
+mapa.json
+wyniki/
+# wejscia/wyjscia (akta) — teksty i dokumenty
+*.txt
+*.docx
+*.pdf
+# ...ale requirements.txt zostawiamy
+!requirements.txt
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,16 @@
+# Rdzeń anonimizacji
+presidio-analyzer
+spacy>=3.4
+python-docx
+# Model spaCy PL — instaluj osobno:
+#   python -m spacy download pl_core_news_lg
+
+# OCR (skany PDF) — opcjonalne
+pymupdf
+pytesseract
+pillow
+
+# UI — opcjonalne
+streamlit
+
+# Drugi przebieg LLM (Bielik) — przez Ollamę (osobna instalacja), bez zależności pip
