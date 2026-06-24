@@ -60,10 +60,12 @@ streamlit run ui.py
 
 [Microsoft Presidio](https://github.com/microsoft/presidio) · [spaCy](https://spacy.io) (`pl_core_news_lg`) · [Bielik / SpeakLeash](https://huggingface.co/speakleash) przez [Ollama](https://ollama.com) · [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) · [PyMuPDF](https://pymupdf.readthedocs.io).
 
-## Powiązane / Related (ekosystem)
+## Ekosystem / Related
 
-- **[legal-cite-pl](https://github.com/apiotrowski-afk/legal-cite-pl)** — MCP weryfikujący brzmienie przepisu PL/UE ze źródła.
-- **[commercial-legal-pl](https://github.com/apiotrowski-afk/commercial-legal-pl)** — Claude skill do redakcji i analizy umów (PL).
+Część zestawu otwartych narzędzi LegalTech (PL):
+- **[legal-cite-pl](https://github.com/apiotrowski-afk/legal-cite-pl)** — MCP: weryfikacja brzmienia przepisu PL/UE ze źródła.
+- **[commercial-legal-pl](https://github.com/apiotrowski-afk/commercial-legal-pl)** — Claude skill: redakcja i analiza umów (PL).
+- **[anon-legal-pl](https://github.com/apiotrowski-afk/anon-legal-pl)** — *(ten projekt)* lokalna anonimizacja akt prawnych (PL).
 - **[kancelaria-dms](https://github.com/apiotrowski-afk/kancelaria-dms)** — DMS/CRM dla kancelarii (Google Workspace).
 
 ## Licencja
