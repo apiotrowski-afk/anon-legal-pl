@@ -67,12 +67,35 @@ class AnonymizationTest(unittest.TestCase):
         self.assertIn("nr wpisu na listę: [NR_WPISU_1]", text)
         self.assertIn("numer wpisu na listę radców prawnych: [NR_WPISU_2]", text)
 
-    def test_kio_address_is_public_under_its_heading(self):
+    def test_kio_address_is_masked(self):
         address = "ul. Postępu 17A\n02-676 Warszawa"
+        text, mapping = self.mask(f"Prezes Krajowej Izby Odwoławczej\n{address}")
+        self.assertIn("Prezes Krajowej Izby Odwoławczej", text)
+        for tag, value in (
+            ("[ULICA_1]", "ul. Postępu 17A"),
+            ("[KOD_POCZTOWY_1]", "02-676"),
+            ("[ADRES_1]", "Warszawa"),
+        ):
+            self.assertEqual(mapping[tag], value)
+            self.assertNotIn(value, text)
+
+    def test_procurement_fields_are_masked_at_each_occurrence(self):
         text, mapping = self.mask(
-            f"Odwołujący:\n{address}\nPrezes Krajowej Izby Odwoławczej\n{address}"
+            "pn. „Dostawa usług\nserwisowania urządzeń” nr referencyjny sprawy: ABC.447.2026\n"
+            "Numer ogłoszenia w Dzienniku Urzędowym UE: 999512-2026\n"
+            "Powtórzenie: Dostawa usług serwisowania urządzeń; ABC.447.2026; 999512-2026."
         )
-        self.assertEqual(text.count(address), 1)
-        self.assertIn(f"Prezes Krajowej Izby Odwoławczej\n{address}", text)
-        self.assertEqual(mapping["[ULICA_1]"], "ul. Postępu 17A")
-        self.assertEqual(mapping["[KOD_POCZTOWY_1]"], "02-676")
+        self.assertEqual(text.count("[NR_SPRAWY_1]"), 2)
+        self.assertEqual(text.count("[NR_TED_1]"), 2)
+        self.assertEqual(
+            [value for tag, value in mapping.items() if tag.startswith("[TYTUL_ZAMOWIENIA_")],
+            ["Dostawa usług", "serwisowania urządzeń", "Dostawa usług serwisowania urządzeń"],
+        )
+
+    def test_notice_title_includes_its_continuation_and_stops_at_description_label(self):
+        text, mapping = self.mask(
+            'Tytuł: Naprawa urządzenia "Model X"\nw pracowni pomiarowej\n'
+            'Opis: Przedmiotem jest naprawa urządzenia "Model X" w pracowni pomiarowej.'
+        )
+        self.assertIn("Opis: Przedmiotem jest [TYTUL_ZAMOWIENIA_3].", text)
+        self.assertEqual(mapping["[TYTUL_ZAMOWIENIA_2]"], "w pracowni pomiarowej")

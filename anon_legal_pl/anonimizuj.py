@@ -108,6 +108,18 @@ def zbuduj_analizator(model="pl_core_news_lg"):
         ("PL_KOD_POCZTOWY", r"(?<![\w-])\d{2}-\d{3}(?![\w-])"),
         ("PL_KLIENT", r"(?<=\b(?:nr|numer)[ \t]+klienta[ \t]*:?[ \t]*(?:\n[ \t]*)?)\d+\b"),
         ("PL_TRANSAKCJA", r"\bCEN\d{13}\b"),
+        ("PL_NUMER_SPRAWY",
+         r"\bZP(?=[A-Z0-9./-]*\d)(?:[./-][A-Z0-9]+)+\b"
+         r"|(?<=\b(?:(?:nr\.?|numer)[ \t]+(?:referencyjny[ \t]+sprawy|postępowania)"
+         r"|wewnętrzny[ \t]+identyfikator)[ \t]*:?[ \t]*(?:\r?\n[ \t]*)?)"
+         r"(?=[A-Z0-9./-]*\d)[A-Z0-9]+(?:[./-][A-Z0-9]+)*\b"),
+        ("PL_TED", r"(?<![\w/-])\d{6,8}-20\d{2}(?![\w/-])"),
+        ("PL_MIEJSCOWOSC", r"(?m)(?<=^[ \t]*miejscowość[ \t]*:[ \t]*)\S[^\r\n]*"),
+        ("PL_TYTUL_ZAMOWIENIA",
+         r"(?m)(?<=\b(?:pn\.|pod[ \t]+nazwą|postępowaniu|tytuł[ \t]+zamówienia)"
+         r"[ \t]*:?[ \t]*(?:\r?\n[ \t]*)?[„«])[^”»]{1,500}(?=[”»])"
+         r"|(?<=^[ \t]*tytuł(?:[ \t]+zamówienia)?[ \t]*:[ \t]*)"
+         r"[^\r\n]+(?:\r?\n(?![ \t]*(?:[^\r\n:]{1,45}:|$))[^\r\n]+){0,3}"),
         ("PL_WPIS_ZAWODOWY",
          r"(?<=\b(?:nr\.?|numer)[ \t]+wpisu(?:[ \t]+na[ \t]+list[ęy]"
          r"(?:[ \t]+(?:adwokatów|radców[ \t]+prawnych))?)?[ \t]*:?[ \t]*(?:\n[ \t]*)?)"
@@ -133,16 +145,13 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
         "PL_EMAIL": "EMAIL", "PL_TELEFON": "TELEFON", "PL_KRS": "KRS",
         "PL_KOD_POCZTOWY": "KOD_POCZTOWY", "PL_KLIENT": "NR_KLIENTA",
         "PL_TRANSAKCJA": "NR_TRANSAKCJI", "PL_WPIS_ZAWODOWY": "NR_WPISU",
-        "PL_FIRMA": "PODMIOT"}
+        "PL_FIRMA": "PODMIOT", "PL_MIEJSCOWOSC": "ADRES",
+        "PL_NUMER_SPRAWY": "NR_SPRAWY", "PL_TED": "NR_TED",
+        "PL_TYTUL_ZAMOWIENIA": "TYTUL_ZAMOWIENIA"}
 
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
-_ADRES_KIO = re.compile(
-    r"\b(?:Krajowej[ \t]+Izby[ \t]+Odwoławczej|Krajowa[ \t]+Izba[ \t]+Odwoławcza|KIO)"
-    r"[ \t]*[:,]?\s+(?P<adres>(?:ul\.[ \t]+)?Postępu[ \t]+17A\b"
-    r"(?:[,\s]+02-676[ \t]+Warszawa\b)?)",
-    re.IGNORECASE,
-)
+_POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA"}
 _ETYKIETY_DOKUMENTU = {
     "adw", "adwokat", "adres", "bank", "e-mail", "email", "fax", "kio", "krs",
     "mocodawca", "mocodawcy", "nip", "odwołujący", "odwołującego", "odwołującemu",
@@ -201,6 +210,18 @@ def _czyste_zakresy(tekst, zakresy, *, nlp=False):
                 yield lewy, prawy, typ
 
 
+def _powtorzenia_pol(tekst, zakresy):
+    """Rozpoznaj powtórzone wartości również wtedy, gdy PDF łamie je inaczej."""
+    pola = {
+        (typ, tuple(tekst[start:koniec].split()))
+        for start, koniec, typ in zakresy if typ in _POWTARZANE_POLA
+    }
+    for typ, slowa in pola:
+        wzorzec = r"\s+".join(map(re.escape, slowa))
+        for trafienie in re.finditer(rf"(?<!\w){wzorzec}(?!\w)", tekst, re.IGNORECASE):
+            yield trafienie.start(), trafienie.end(), typ
+
+
 def pseudonimizuj(
     tekst: str, analyzer: AnalyzerEngine, prog: float = 0.4, *, dodatkowe_osoby: Iterable[str] = (),
 ) -> tuple[str, dict[str, str]]:
@@ -208,9 +229,8 @@ def pseudonimizuj(
     model = analyzer.nlp_engine.nlp["pl"]
     model.max_length = max(model.max_length, len(tekst) + 1)
     wyniki = analyzer.analyze(text=tekst, language="pl", entities=list(ETYK), score_threshold=prog)
-    dokladne = _rozlaczne(
-        (r.start, r.end, r.entity_type) for r in wyniki if r.entity_type not in _TYPY_NER
-    )
+    zakresy_regul = [(r.start, r.end, r.entity_type) for r in wyniki if r.entity_type not in _TYPY_NER]
+    dokladne = _rozlaczne([*zakresy_regul, *_powtorzenia_pol(tekst, zakresy_regul)])
     wykluczenia = [(start, koniec) for start, koniec, _ in dokladne]
     konce = [koniec for _, koniec in wykluczenia]
     zakresy_nlp = [(r.start, r.end, r.entity_type) for r in wyniki if r.entity_type in _TYPY_NER]
@@ -228,14 +248,6 @@ def pseudonimizuj(
         *_czyste_zakresy(tekst, dokladne),
         *_rozlaczne(_czyste_zakresy(tekst, nlp, nlp=True)),
     ])
-    adresy_kio = [dopasowanie.span("adres") for dopasowanie in _ADRES_KIO.finditer(tekst)]
-    if adresy_kio:
-        konce_kio = [koniec for _, koniec in adresy_kio]
-        pozostale = (
-            fragment for start, koniec, typ in scalone
-            for fragment in _poza_zakresami(start, koniec, typ, adresy_kio, konce_kio)
-        )
-        scalone = list(_czyste_zakresy(tekst, pozostale))
 
     licznik, mapa, pseudo = {}, {}, {}
 

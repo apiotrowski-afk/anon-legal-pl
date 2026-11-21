@@ -53,7 +53,7 @@ analizator = zbuduj_analizator("pl_core_news_lg")
 tekst, mapa = pseudonimizuj(pdf_na_tekst("akta.pdf"), analizator)
 ```
 
-Reguły rozpoznają m.in. polskie telefony z etykietą, KRS, numery wpisów zawodowych i numery transakcji w formacie `CEN` oraz 13 cyfr. Powtórzenia tego samego numeru transakcji dostają ten sam znacznik. Adres przy ul. Postępu pozostaje czytelny, gdy dokument wskazuje przy nim Krajową Izbę Odwoławczą.
+Reguły rozpoznają m.in. polskie telefony z etykietą, KRS, numery wpisów zawodowych i numery transakcji w formacie `CEN` oraz 13 cyfr. Powtórzenia tego samego numeru transakcji dostają ten sam znacznik. W dokumentach zamówień publicznych reguły maskują tytuły postępowań, numery sprawy i numery TED. Adres KIO jest maskowany według tych samych zasad co pozostałe adresy.
 
 **CLI:**
 ```bash
