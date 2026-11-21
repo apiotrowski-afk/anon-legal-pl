@@ -39,7 +39,59 @@ def regon_ok(r):
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 
-_FORMA_PRAWNA = r"\b(?:sp\.\s*(?:z\s+o\.\s*o\.|k\.|j\.|p\.)|s\.\s*a\.)"
+_ODSTEP = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?"
+_DYZYWIZ = r"[-‐‑–]"
+_IBAN_PL = rf"(?<!\w)(?:PL{_ODSTEP})?\d{{2}}(?:{_ODSTEP}\d{{4}}){{6}}(?!\w)"
+_TED = rf"(?<![\w/-])(?:\d{{6,8}}{_DYZYWIZ}20\d{{2}}|20\d{{2}}\s*/\s*S\s*\d{{1,3}}\s*{_DYZYWIZ}\s*\d{{6,8}})(?![\w/-])"
+_BZP = r"(?<![\w/-])20\d{2}\s*/\s*BZP\s*\d{8}(?:\s*/\s*\d{2}(?:\s*/\s*P)?)?(?![\w/-])"
+_KOD_SPRAWY = r"(?=[A-Z0-9./-]*\d)[A-Z][A-Z0-9]*(?:[./-][A-Z0-9]+)+"
+_NUMER_SPRAWY = (
+    r"(?<![\w./-])[A-Z]{2,6}\.\d{1,5}(?:\.\d{1,5}){0,3}\.20\d{2}"
+    r"(?:\.[A-Z]{1,6})?(?![\w/-]|\.[A-Z0-9])"
+    r"|(?<=\b(?:(?:nr\.?|numer)\s+(?:referencyjny(?:\s+sprawy)?|postępowania)"
+    r"|(?:postępowani[eu]|przetargu)\s+nr\.?|w\s+przetargu|wewnętrzny\s+identyfikator)"
+    r"\s*:?\s*)" + _KOD_SPRAWY + r"(?![\w/-])"
+)
+_SLOWO_PROPRIUM = r"(?-i:[A-ZĄĆĘŁŃÓŚŹŻ][^\W\d_]*(?:[-’'][A-ZĄĆĘŁŃÓŚŹŻ][^\W\d_]*)*)"
+_MIASTO = rf"{_SLOWO_PROPRIUM}(?:[ \t]+(?:nad|pod|w|{_SLOWO_PROPRIUM})){{0,3}}"
+_FORMA_PRAWNA = (
+    r"\b(?:sp\.\s*(?:z\s+o\.\s*o\.?(?:\s+sp\.\s*k\.?)?|[kjp]\.?)|s\.\s*a\.?"
+    r"|spółk[aiąę]\s+(?:z\s+ograniczoną\s+odpowiedzialnością|akcyjn[ąa]|komandytow[ąa]|jawn[ąa]))"
+    r"(?!\w)"
+)
+# Nagłówki powinny pozostać czytelne także wtedy, gdy model rozpozna tylko ich część.
+_ROLE = r"zamawiający|odwołujący|mocodawc[ay]|nadawca|adresat przelewu|płatnik|beneficjent|wykonawca|odbiorca|zleceniodawca"
+_SLOWO_FIRMY = rf"(?!(?:{_ROLE}|adres|KRS|NIP|REGON|nr|numer|tytuł|zakres)\b){_SLOWO_PROPRIUM}"
+_LACZNIK_FIRMY = r"(?-i:i|w|we|im\.|dr\.|prof\.)"
+_CZESC_NAZWY = rf"(?:{_LACZNIK_FIRMY}|{_SLOWO_FIRMY})"
+_NAZWA_FIRMY = rf"{_SLOWO_FIRMY}(?:\s+{_CZESC_NAZWY}){{0,9}}\s+{_FORMA_PRAWNA}"
+_NAZWA_URZEDU = (
+    rf"(?-i:Gmina|Powiat|Miasto|Centrum|Szpital|Zarząd|Zakład|Urząd)"
+    rf"(?:\s+{_CZESC_NAZWY}){{0,9}}\s+{_SLOWO_FIRMY}"
+)
+_NAZWA_JDG = (
+    rf"(?-i:[A-ZĄĆĘŁŃÓŚŹŻ]{{2,}}(?:-[A-ZĄĆĘŁŃÓŚŹŻ]{{2,}})+)"
+    rf"\s+{_SLOWO_PROPRIUM}\s+{_SLOWO_PROPRIUM}"
+)
+_FIRMA = (
+    rf"(?m)(?<=^[ \t]*|\b(?:{_ROLE}|oficjalna nazwa|nazwa)[ \t]*[:\r\n]\s*"
+    r"|\b(?:przez|prowadzi|dla|mocodawcą\s+jest|w\s+imieniu(?:\s+wykonawcy)?|pod\s+firmą)\s+"
+    r"|\b\d{1,2}\)[ \t]+)"
+    rf"(?:{_NAZWA_FIRMY}|{_NAZWA_URZEDU}|{_NAZWA_JDG})"
+    r"|(?<=\badres\s+do\s+korespondencji\s*:\s*)"
+    rf"(?:{_NAZWA_FIRMY}|Kancelaria[^\r\n,:]{{2,90}}(?=,|\r?$))"
+)
+_TYTUL_ZAMOWIENIA = (
+    r"(?m)(?<=\b(?:pn\.|pod\s+nazwą|postępowani[aeu]|zamówieni[aeu]|tytuł\s+zamówienia)"
+    r"\s*:?\s*[„«])[^”»]{1,500}(?=[”»])"
+    r"|(?<=^[ \t]*tytuł[ \t]*:[ \t]*)[^\r\n]+"
+    r"(?:\r?\n(?![ \t]*[^\r\n:]{1,45}:)[^\r\n]+){0,3}?(?=\r?\n[ \t]*opis[ \t]*:)"
+    r"|(?<=^[ \t]*tytuł zamówienia[ \t]*:[ \t]*)[^\r\n]+"
+    r"(?:\r?\n(?![ \t]*(?:nr\b|numer\b|[^\r\n:]{1,45}:|$))[^\r\n]+){0,3}"
+    r"|(?<=^[ \t]*postępowanie[ \t]*\r?\n)(?-i:[A-ZĄĆĘŁŃÓŚŹŻ])[^\r\n]+"
+    r"(?:\r?\n(?![ \t]*(?:nr\b|numer\b|[^\r\n:]{1,45}:|$))[^\r\n]+){0,3}?"
+    r"(?=\r?\n[ \t]*(?:nr\.?|numer)[ \t]+[A-Z0-9])"
+)
 
 class Walidowany(PatternRecognizer):
     """Pattern + suma kontrolna. Poprawna suma -> wynik 1.0.
@@ -86,7 +138,7 @@ def zbuduj_analizator(model="pl_core_news_lg"):
     # IBAN i sygnatura — po formacie, bez sumy kontrolnej (dla redakcji to bezpieczniejsze).
     a.registry.add_recognizer(PatternRecognizer(
         supported_entity="PL_IBAN", supported_language="pl",
-        patterns=[Pattern("iban", r"\bPL\d{2}(?:[ ]?\d{4}){6}\b|\bPL\d{26}\b", 0.6)],
+        patterns=[Pattern("iban", _IBAN_PL, 1.0)],
         context=["rachunek", "konto", "iban", "nr rachunku"]))
     a.registry.add_recognizer(PatternRecognizer(
         supported_entity="PL_SYGN", supported_language="pl",
@@ -108,25 +160,24 @@ def zbuduj_analizator(model="pl_core_news_lg"):
         ("PL_KOD_POCZTOWY", r"(?<![\w-])\d{2}-\d{3}(?![\w-])"),
         ("PL_KLIENT", r"(?<=\b(?:nr|numer)[ \t]+klienta[ \t]*:?[ \t]*(?:\n[ \t]*)?)\d+\b"),
         ("PL_TRANSAKCJA", r"\bCEN\d{13}\b"),
-        ("PL_NUMER_SPRAWY",
-         r"\bZP(?=[A-Z0-9./-]*\d)(?:[./-][A-Z0-9]+)+\b"
-         r"|(?<=\b(?:(?:nr\.?|numer)[ \t]+(?:referencyjny[ \t]+sprawy|postępowania)"
-         r"|wewnętrzny[ \t]+identyfikator)[ \t]*:?[ \t]*(?:\r?\n[ \t]*)?)"
-         r"(?=[A-Z0-9./-]*\d)[A-Z0-9]+(?:[./-][A-Z0-9]+)*\b"),
-        ("PL_TED", r"(?<![\w/-])\d{6,8}-20\d{2}(?![\w/-])"),
-        ("PL_MIEJSCOWOSC", r"(?m)(?<=^[ \t]*miejscowość[ \t]*:[ \t]*)\S[^\r\n]*"),
-        ("PL_TYTUL_ZAMOWIENIA",
-         r"(?m)(?<=\b(?:pn\.|pod[ \t]+nazwą|postępowaniu|tytuł[ \t]+zamówienia)"
-         r"[ \t]*:?[ \t]*(?:\r?\n[ \t]*)?[„«])[^”»]{1,500}(?=[”»])"
-         r"|(?<=^[ \t]*tytuł(?:[ \t]+zamówienia)?[ \t]*:[ \t]*)"
-         r"[^\r\n]+(?:\r?\n(?![ \t]*(?:[^\r\n:]{1,45}:|$))[^\r\n]+){0,3}"),
+        ("PL_NUMER_SPRAWY", _NUMER_SPRAWY),
+        ("PL_TED", _TED),
+        ("PL_BZP", _BZP),
+        ("PL_NIP", rf"(?m)(?<=^[ \t]*{_MIASTO}\s*/\s*|\bNIP\s*:?\s*)\d{{10}}\b"),
+        ("PL_MIEJSCOWOSC",
+         rf"(?m)(?<=^[ \t]*miejscowość[ \t]*:[ \t]*|\b\d{{2}}-\d{{3}}\s+)"
+         rf"{_MIASTO}(?=[ \t]*(?:[,;/]|$))"
+         rf"|(?<=^[ \t]*){_MIASTO}(?=[ \t]*,[ \t]*(?:dnia\s+)?\d)"
+         rf"|(?<=^[ \t]*){_MIASTO}(?=\s*/\s*\d{{10}}\b)"),
+        ("PL_TYTUL_ZAMOWIENIA", _TYTUL_ZAMOWIENIA),
+        ("PL_PODPIS",
+         rf"(?m)(?<=^[ \t]*){_SLOWO_PROPRIUM}(?:[ \t]+{_SLOWO_PROPRIUM}){{1,2}}"
+         r"(?=\s*\r?\n[ \t]*(?:(?:wice)?prezes|członek)[ \t]+zarządu\b|\s*\r?\n[ \t]*prokurent\b)"),
         ("PL_WPIS_ZAWODOWY",
          r"(?<=\b(?:nr\.?|numer)[ \t]+wpisu(?:[ \t]+na[ \t]+list[ęy]"
          r"(?:[ \t]+(?:adwokatów|radców[ \t]+prawnych))?)?[ \t]*:?[ \t]*(?:\n[ \t]*)?)"
-         r"(?:(?-i:[A-Z]{1,5})(?:[/-](?-i:[A-Z]{1,5}))*[ \t/-]*)?\d{2,}(?:[/-]\d+)?\b"),
-        ("PL_FIRMA",
-         r"(?m)(?<=^[ \t]*(?:zamawiający|odwołujący|nadawca|adresat przelewu)[ \t]*:?[ \t]*(?:\n[ \t]*)?)"
-         r"[^\W\d_][^\n:;,]{1,100}?[ \t]+" + _FORMA_PRAWNA),
+         r"(?:[A-Z]{1,5}(?:[/-][A-Z]{1,5})*[ \t/-]*)?\d{2,}(?:[/-]\d+)?\b"),
+        ("PL_FIRMA", _FIRMA),
     ):
         a.registry.add_recognizer(PatternRecognizer(
             supported_entity=typ, supported_language="pl", patterns=[Pattern(typ, wzorzec, 1.0)]
@@ -147,14 +198,24 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
         "PL_TRANSAKCJA": "NR_TRANSAKCJI", "PL_WPIS_ZAWODOWY": "NR_WPISU",
         "PL_FIRMA": "PODMIOT", "PL_MIEJSCOWOSC": "ADRES",
         "PL_NUMER_SPRAWY": "NR_SPRAWY", "PL_TED": "NR_TED",
-        "PL_TYTUL_ZAMOWIENIA": "TYTUL_ZAMOWIENIA"}
+        "PL_TYTUL_ZAMOWIENIA": "TYTUL_ZAMOWIENIA", "PL_BZP": "NR_BZP", "PL_PODPIS": "OSOBA"}
 
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
-_POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA"}
+_POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA", "PL_FIRMA", "PL_NIP"}
+_FORMATY_JEDNOZNACZNE = {"PL_IBAN", "PL_TED", "PL_BZP", "PL_TRANSAKCJA", "PL_WPIS_ZAWODOWY"}
+_NAGLOWKI = re.compile(
+    rf"^[ \t]*(?:pełnomocnictwo[ \t]+)?(?P<chronione>{_ROLE}|pełnomocnik|tytuł(?: zamówienia)?"
+    r"|kwota|identyfikator procedury|wewnętrzny identyfikator|nr klienta|data transakcji"
+    r"|numer referencyjny(?: sprawy)?|numer postępowania|numer (?:publikacji )?ogłoszenia"
+    r"|KRS|NIP|REGON|miejscowość)(?=[ \t]*:|[ \t]*$)"
+    r"|^[ \t]*(?P<numeracja>\d{1,2}(?:\.\d{1,2}){1,5}\.?)(?=[ \t]|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 _ETYKIETY_DOKUMENTU = {
     "adw", "adwokat", "adres", "bank", "e-mail", "email", "fax", "kio", "krs",
-    "mocodawca", "mocodawcy", "nip", "odwołujący", "odwołującego", "odwołującemu",
+    "mocodawca", "mocodawcy", "nip", "numer", "odwołujący", "odwołującego", "odwołującemu",
     "pełnomocnik", "pełnomocnicy", "radca prawny", "regon", "sp", "tel", "telefon",
     "ue", "ul", "wykonawca", "wykonawcy", "z o.o", "zamawiający", "zamawiającego",
     "zamawiającemu", "krajowa izba odwoławcza", "krajowej izby odwoławczej",
@@ -165,11 +226,24 @@ _ETYKIETY_DOKUMENTU = {
 def _rozlaczne(zakresy):
     """Wybierz najdłuższy zakres przy wspólnym początku."""
     scalone, ostatni = [], -1
-    for start, koniec, typ in sorted(set(zakresy), key=lambda x: (x[0], x[0] - x[1], x[2])):
+    kolejnosc = sorted(set(zakresy), key=lambda x: (x[0], x[0] - x[1], x[2] not in _FORMATY_JEDNOZNACZNE, x[2]))
+    for start, koniec, typ in kolejnosc:
         if start >= ostatni:
             scalone.append((start, koniec, typ))
             ostatni = koniec
     return scalone
+
+
+def _wykluczenia_nlp(tekst, dokladne):
+    chronione = [m.span(m.lastgroup) for m in _NAGLOWKI.finditer(tekst)]
+    chronione.extend((start, koniec) for start, koniec, _ in dokladne)
+    polaczone = []
+    for start, koniec in sorted(chronione):
+        if polaczone and start <= polaczone[-1][1]:
+            polaczone[-1] = (polaczone[-1][0], max(koniec, polaczone[-1][1]))
+        else:
+            polaczone.append((start, koniec))
+    return polaczone
 
 
 def _poza_zakresami(start, koniec, typ, wykluczenia, konce):
@@ -231,7 +305,7 @@ def pseudonimizuj(
     wyniki = analyzer.analyze(text=tekst, language="pl", entities=list(ETYK), score_threshold=prog)
     zakresy_regul = [(r.start, r.end, r.entity_type) for r in wyniki if r.entity_type not in _TYPY_NER]
     dokladne = _rozlaczne([*zakresy_regul, *_powtorzenia_pol(tekst, zakresy_regul)])
-    wykluczenia = [(start, koniec) for start, koniec, _ in dokladne]
+    wykluczenia = _wykluczenia_nlp(tekst, dokladne)
     konce = [koniec for _, koniec in wykluczenia]
     zakresy_nlp = [(r.start, r.end, r.entity_type) for r in wyniki if r.entity_type in _TYPY_NER]
     for osoba in set(dodatkowe_osoby):
@@ -252,12 +326,12 @@ def pseudonimizuj(
     licznik, mapa, pseudo = {}, {}, {}
 
     def tag(txt, typ):
-        if txt in pseudo:
-            return pseudo[txt]
         et = ETYK[typ]
+        if (et, txt) in pseudo:
+            return pseudo[et, txt]
         licznik[et] = licznik.get(et, 0) + 1
         t = f"[{et}_{licznik[et]}]"
-        pseudo[txt] = t
+        pseudo[et, txt] = t
         mapa[t] = txt
         return t
 

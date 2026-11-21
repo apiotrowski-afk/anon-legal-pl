@@ -53,7 +53,7 @@ analizator = zbuduj_analizator("pl_core_news_lg")
 tekst, mapa = pseudonimizuj(pdf_na_tekst("akta.pdf"), analizator)
 ```
 
-Reguły rozpoznają m.in. polskie telefony z etykietą, KRS, numery wpisów zawodowych i numery transakcji w formacie `CEN` oraz 13 cyfr. Powtórzenia tego samego numeru transakcji dostają ten sam znacznik. W dokumentach zamówień publicznych reguły maskują tytuły postępowań, numery sprawy i numery TED. Adres KIO jest maskowany według tych samych zasad co pozostałe adresy.
+Reguły rozpoznają m.in. polskie telefony z etykietą, KRS, numery wpisów zawodowych i numery transakcji w formacie `CEN` oraz 13 cyfr. Powtórzenia tego samego numeru transakcji dostają ten sam znacznik. Reguły maskują tytuły zamówień, numery spraw z etykietą wielowierszową, numery BZP oraz oba zapisy TED. Rachunki krajowe mogą występować z prefiksem `PL` albo bez niego, również z podziałem na wiersze. Adres KIO jest maskowany według tych samych zasad co pozostałe adresy.
 
 **CLI:**
 ```bash

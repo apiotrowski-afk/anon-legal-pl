@@ -99,3 +99,53 @@ class AnonymizationTest(unittest.TestCase):
         )
         self.assertIn("Opis: Przedmiotem jest [TYTUL_ZAMOWIENIA_3].", text)
         self.assertEqual(mapping["[TYTUL_ZAMOWIENIA_2]"], "w pracowni pomiarowej")
+
+    def test_bank_accounts_without_prefix_and_across_lines(self):
+        bare = "12111122223333444455556666"
+        text, mapping = self.mask(
+            f"Rachunek obciążany: {bare}\nRachunek beneficjenta:\n"
+            "PL23 1234 5678 9012 3456 7890\n1234"
+        )
+        self.assertEqual(list(mapping.values()), [bare, "PL23 1234 5678 9012 3456 7890", "1234"])
+        self.assertIn("Rachunek obciążany: [RACHUNEK_1]", text)
+        self.assertIn("[RACHUNEK_2]\n[RACHUNEK_3]", text)
+
+    def test_extended_notice_numbers_and_multiline_case_label(self):
+        text, mapping = self.mask(
+            "nr referencyjny\nsprawy: MCLM/ZP/07/2026\n"
+            "Numer ogłoszenia TED: 2026/S\n111-999512\n"
+            "Numer ogłoszenia BZP: 2026/BZP\n00999555/01\n"
+            "W przetargu MCLM/ZP/07/2026 oraz DI.579.2026."
+        )
+        self.assertEqual(text.count("[NR_SPRAWY_1]"), 2)
+        self.assertEqual(mapping["[NR_SPRAWY_2]"], "DI.579.2026")
+        self.assertIn("[NR_TED_1]\n[NR_TED_2]", text)
+        self.assertIn("[NR_BZP_1]\n[NR_BZP_2]", text)
+
+    def test_protect_labels_and_distinguish_payment_title(self):
+        text, mapping = self.mask(
+            "Zamawiający:\nPrzykładowa Firma Spółka z ograniczoną\nodpowiedzialnością\n"
+            "2.1. Treść\nTytuł: opłata skarbowa w przetargu DI.579.2026 CEN2612345678901\n"
+            "Numer referencyjny\nCEN2612345678901"
+        )
+        self.assertIn("Zamawiający:\n[PODMIOT_1]\n[PODMIOT_2]", text)
+        self.assertIn("2.1.", text)
+        self.assertIn("Tytuł: opłata skarbowa w przetargu [NR_SPRAWY_1] [NR_TRANSAKCJI_1]", text)
+        self.assertEqual(mapping["[PODMIOT_2]"], "odpowiedzialnością")
+
+    def test_legal_registration_and_tax_identifier_in_offer_table(self):
+        text, mapping = self.mask(
+            "nr wpisu na listę: KR/Adw/1987\n"
+            "Poznań /\n0000000001\n201 999,00 PLN"
+        )
+        self.assertEqual(mapping["[NR_WPISU_1]"], "KR/Adw/1987")
+        self.assertEqual(mapping["[NIP_1]"], "0000000001")
+        self.assertIn("201 999,00 PLN", text)
+
+    def test_public_entity_name_includes_patron_and_location(self):
+        text, mapping = self.mask(
+            "Zamawiający:\nSzpital Miejski im. dr. Jana Kowalskiego w Zielonej Górze\n"
+            "ul. Pogodna 17, 65-001 Zielona Góra"
+        )
+        self.assertIn("Zamawiający:\n[PODMIOT_1]", text)
+        self.assertEqual(mapping["[PODMIOT_1]"], "Szpital Miejski im. dr. Jana Kowalskiego w Zielonej Górze")
