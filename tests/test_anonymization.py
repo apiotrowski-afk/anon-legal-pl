@@ -155,6 +155,37 @@ class AnonymizationTest(unittest.TestCase):
         self.assertEqual(text, "Zamawiający:\n[PODMIOT_1]\nOdwołujący:\n[PODMIOT_2]")
         self.assertEqual(mapping, {"[PODMIOT_1]": first, "[PODMIOT_2]": second})
 
+    def test_document_titles_stay_visible_above_company_names(self):
+        for heading in (
+            "PEŁNOMOCNICTWO PROCESOWE",
+            "Pełnomocnictwo",
+            "Potwierdzenie wykonania przelewu",
+            "ODWOŁANIE",
+        ):
+            with self.subTest(heading=heading):
+                name = "Wzorcowe Usługi sp. z o.o."
+                text, mapping = self.mask(f"{heading}\n{name}")
+                self.assertEqual(text, f"{heading}\n[PODMIOT_1]")
+                self.assertEqual(mapping, {"[PODMIOT_1]": name})
+
+    def test_unlabelled_adjacent_entities_keep_separate_markers(self):
+        for first in (
+            "Gmina Przykładowa", "Fundacja Przykład", "Alpha Ogrody",
+            "Szpital Miejski", "Bank Północny", "Uniwersytet Warszawski",
+        ):
+            with self.subTest(first=first):
+                second = "Wzorcowe Usługi sp. z o.o."
+                text, mapping = self.mask(f"Zamawiający:\n{first}\n{second}")
+                self.assertEqual(text, "Zamawiający:\n[PODMIOT_1]\n[PODMIOT_2]")
+                self.assertEqual(mapping, {"[PODMIOT_1]": first, "[PODMIOT_2]": second})
+
+    def test_one_line_mention_confirms_name_wrapped_before_legal_form(self):
+        wrapped = "Lunareth\nAutomatyka sp. z o.o."
+        single_line = " ".join(wrapped.split())
+        text, mapping = self.mask(f"Zamawiający:\n{wrapped}\nWniosek złożony przez {single_line}")
+        self.assertIn("Zamawiający:\n[PODMIOT_1]\nWniosek", text)
+        self.assertEqual(mapping, {"[PODMIOT_1]": wrapped, "[PODMIOT_2]": single_line})
+
     def test_legal_registration_and_tax_identifier_in_offer_table(self):
         text, mapping = self.mask(
             "nr wpisu na listę: KR/Adw/1987\n"

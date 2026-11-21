@@ -80,7 +80,16 @@ _FORMA_PRAWNA = (
 )
 # Nagłówki powinny pozostać czytelne także wtedy, gdy model rozpozna tylko ich część.
 _ROLE = r"zamawiający|odwołujący|mocodawc[ay]|nadawca|adresat przelewu|płatnik|beneficjent|wykonawca|odbiorca|zleceniodawca"
-_SLOWO_FIRMY = rf"(?!(?:{_ROLE}|adres|KRS|NIP|REGON|nr|numer|tytuł|zakres)\b){_SLOWO_PROPRIUM}"
+_TYTUL_DOKUMENTU = (
+    r"pełnomocnictwo(?:[ \t]+(?:procesowe|ogólne|szczególne))?"
+    r"|potwierdzenie(?:[ \t]+(?:wykonania|realizacji|zlecenia))?[ \t]+przelewu"
+    r"|odwołanie"
+)
+_KONIEC_NAGLOWKA = r"[ \t]*:?[ \t]*(?=\r?\n|\Z)"
+_SLOWO_FIRMY = (
+    rf"(?!(?:{_ROLE}|adres|KRS|NIP|REGON|nr|numer|tytuł|zakres)\b)"
+    rf"(?!(?:{_TYTUL_DOKUMENTU}){_KONIEC_NAGLOWKA}){_SLOWO_PROPRIUM}"
+)
 _LACZNIK_FIRMY = r"(?-i:i|w|we|im\.|dr\.|prof\.)"
 _CZESC_NAZWY = rf"(?:{_LACZNIK_FIRMY}|{_SLOWO_FIRMY})"
 _NAZWA_FIRMY = rf"{_SLOWO_FIRMY}(?:\s+{_CZESC_NAZWY}){{0,9}}\s+{_FORMA_PRAWNA}"
@@ -222,6 +231,10 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
 _FORMA_PRAWNA_NA_KONCU = re.compile(rf"{_FORMA_PRAWNA}\Z", re.IGNORECASE)
+_SAMODZIELNY_PODMIOT = re.compile(
+    r"(?:gmina|miasto|powiat|fundacja|stowarzyszenie|spółdzielnia|parafia)[ \t]+\S",
+    re.IGNORECASE,
+)
 _POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA", "PL_FIRMA", "PL_NIP", "PL_TRANSAKCJA", "PL_IBAN"}
 _FORMATY_JEDNOZNACZNE = {"PL_IBAN", "PL_TED", "PL_BZP", "PL_TRANSAKCJA", "PL_WPIS_ZAWODOWY"}
 _NAGLOWKI = re.compile(
@@ -229,6 +242,7 @@ _NAGLOWKI = re.compile(
     r"|kwota|identyfikator procedury|wewnętrzny identyfikator|nr klienta|data transakcji"
     rf"|{_ETYKIETA_SPRAWY}|{_ETYKIETA_TRANSAKCJI}|{_ETYKIETA_RACHUNKU}"
     r"|numer (?:publikacji )?ogłoszenia|KRS|NIP|REGON|miejscowość)(?=[ \t]*:|[ \t]*$)"
+    rf"|^[ \t]*(?P<tytul_dokumentu>{_TYTUL_DOKUMENTU}){_KONIEC_NAGLOWKA}"
     r"|^[ \t]*(?P<numeracja>\d{1,2}(?:\.\d{1,2}){1,5}\.?)(?=[ \t]|$)",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -293,22 +307,61 @@ def _zakresy_nlp(tekst, start, koniec, typ, wykluczenia, konce):
     yield from _poza_zakresami(start, koniec, typ, wykluczenia, konce)
 
 
-def _czyste_zakresy(tekst, zakresy, *, nlp=False):
+def _zgodnosc_na_lamaniu(nazwa, start, slowa):
+    granice = list(re.finditer(r"\S+(?=[ \t]*\r?\n[ \t]*(?P<dalej>\S+))", nazwa))
+    if len(granice) != len(nazwa.splitlines()) - 1:
+        return False
+    for granica in granice:
+        lewe = slowa.get(start + granica.start())
+        prawe = slowa.get(start + granica.start("dalej"))
+        if lewe is None or prawe is None:
+            return False
+        if lewe.pos_ == "ADP":
+            continue
+        if {lewe.pos_, prawe.pos_} != {"NOUN", "ADJ"} or not all(
+            lewe.morph.get(cecha) and lewe.morph.get(cecha) == prawe.morph.get(cecha)
+            for cecha in ("Case", "Gender", "Number")
+        ):
+            return False
+    return True
+
+
+def _jest_jedna_nazwa(tekst, start, wartosc, slowa):
+    if "\n" not in wartosc or not all(linia.strip() for linia in wartosc.splitlines()):
+        return False
+    forma = _FORMA_PRAWNA_NA_KONCU.search(wartosc)
+    if forma is None:
+        return False
+
+    nazwa = wartosc[:forma.start()].rstrip()
+    wiersze = [linia.strip() for linia in nazwa.splitlines()]
+    if not wiersze or _FORMY_PRAWNE.search(nazwa):
+        return False
+    if len(wiersze) == 1:
+        # Podział nastąpił przy formie prawnej lub w środku samej formy.
+        return True
+    if any(_SAMODZIELNY_PODMIOT.match(linia) for linia in wiersze[:-1]):
+        return False
+
+    # Samo dopasowanie nazwy zakończonej formą prawną może objąć dwa podmioty.
+    # Potwierdzeniem jest zapis w jednym wierszu lub ciągłość gramatyczna na przełamaniu.
+    zapis_jednowierszowy = r"[ \t]+".join(map(re.escape, wartosc.split()))
+    if re.search(rf"(?<!\w){zapis_jednowierszowy}(?!\w)", tekst, re.IGNORECASE):
+        return True
+    return _zgodnosc_na_lamaniu(nazwa, start, slowa)
+
+
+def _czyste_zakresy(tekst, zakresy, slowa, *, nlp=False):
     for start, koniec, typ in zakresy:
         wartosc = tekst[start:koniec]
         etykieta = " ".join(wartosc.casefold().split()).strip(".,:")
         if nlp and (etykieta in _ETYKIETY_DOKUMENTU or _FORMY_PRAWNE.fullmatch(wartosc.strip())):
             continue
-        # Jawna forma prawna pozwala zachować nazwę jako jedną wartość mimo łamania wierszy.
-        # Pusty wiersz może oddzielać akapity lub strony, więc nie łączymy go ze znacznikiem.
-        if (
-            ETYK[typ] == "PODMIOT"
-            and "\n" in wartosc
-            and _FORMA_PRAWNA_NA_KONCU.search(wartosc.rstrip())
-            and all(linia.strip() for linia in wartosc.splitlines())
-        ):
-            yield start + len(wartosc) - len(wartosc.lstrip()), start + len(wartosc.rstrip()), typ
-            continue
+        if ETYK[typ] == "PODMIOT":
+            poczatek_nazwy = start + len(wartosc) - len(wartosc.lstrip())
+            if _jest_jedna_nazwa(tekst, poczatek_nazwy, wartosc.strip(), slowa):
+                yield poczatek_nazwy, start + len(wartosc.rstrip()), typ
+                continue
         # Dla pozostałych wartości zachowaj podziały wierszy w tekście.
         for linia in re.finditer(r"[^\r\n]+", wartosc):
             segment = linia[0]
@@ -336,7 +389,11 @@ def pseudonimizuj(
     """Return the full text with markers and the original value for each marker."""
     model = analyzer.nlp_engine.nlp["pl"]
     model.max_length = max(model.max_length, len(tekst) + 1)
-    wyniki = analyzer.analyze(text=tekst, language="pl", entities=list(ETYK), score_threshold=prog)
+    artefakty = analyzer.nlp_engine.process_text(tekst, "pl")
+    slowa = {token.idx: token for token in artefakty.tokens if not token.is_space}
+    wyniki = analyzer.analyze(
+        text=tekst, language="pl", entities=list(ETYK), score_threshold=prog, nlp_artifacts=artefakty,
+    )
     zakresy_regul = [(r.start, r.end, r.entity_type) for r in wyniki if r.entity_type not in _TYPY_NER]
     dokladne = _rozlaczne([*zakresy_regul, *_powtorzenia_pol(tekst, zakresy_regul)])
     wykluczenia = _wykluczenia_nlp(tekst, dokladne)
@@ -353,8 +410,8 @@ def pseudonimizuj(
         for zakres in _zakresy_nlp(tekst, start, koniec, typ, wykluczenia, konce)
     )
     scalone = sorted([
-        *_czyste_zakresy(tekst, dokladne),
-        *_rozlaczne(_czyste_zakresy(tekst, nlp, nlp=True)),
+        *_czyste_zakresy(tekst, dokladne, slowa),
+        *_rozlaczne(_czyste_zakresy(tekst, nlp, slowa, nlp=True)),
     ])
 
     licznik, mapa, pseudo = {}, {}, {}
