@@ -231,6 +231,10 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
 _FORMA_PRAWNA_NA_KONCU = re.compile(rf"{_FORMA_PRAWNA}\Z", re.IGNORECASE)
+_PELNA_NAZWA_JDG = re.compile(_NAZWA_JDG)
+_PRZED_NAZWA_JDG = re.compile(rf"\bpod\b{_ODSTEP}firmą[ \t]*:?{_ODSTEP}\Z", re.IGNORECASE)
+_NUMER_WIERSZA_TABELI = re.compile(r"^[ \t]*\d{1,3}[.)]?[ \t]*\r?\n[ \t]*\Z", re.MULTILINE)
+_PO_NAZWIE_W_TABELI = re.compile(rf"[ \t]*\r?\n[ \t]*{_MIASTO}[ \t]*/{_ODSTEP}\d{{10}}\b")
 _SAMODZIELNY_PODMIOT = re.compile(
     r"(?:gmina|miasto|powiat|fundacja|stowarzyszenie|spółdzielnia|parafia)[ \t]+\S",
     re.IGNORECASE,
@@ -335,12 +339,32 @@ def _zgodnosc_na_lamaniu(nazwa, start, slowa):
     return True
 
 
+def _wystepuje_w_jednym_wierszu(tekst, nazwa):
+    wzorzec = r"[ \t]+".join(map(re.escape, nazwa.split()))
+    return re.search(rf"(?<!\w){wzorzec}(?!\w)", tekst, re.IGNORECASE) is not None
+
+
+def _potwierdzona_nazwa_jdg(tekst, start, nazwa):
+    if not _PELNA_NAZWA_JDG.fullmatch(nazwa):
+        return False
+    if _PRZED_NAZWA_JDG.search(tekst, max(0, start - 100), start):
+        return True
+
+    # W tabeli powiąż nazwę z numerem pozycji oraz miejscowością i NIP-em.
+    # Wystąpienie w jednym wierszu potwierdza, że osoba należy do nazwy.
+    return bool(
+        _NUMER_WIERSZA_TABELI.search(tekst, max(0, start - 40), start)
+        and _PO_NAZWIE_W_TABELI.match(tekst, start + len(nazwa))
+        and _wystepuje_w_jednym_wierszu(tekst, nazwa)
+    )
+
+
 def _jest_jedna_nazwa(tekst, start, wartosc, slowa):
     if "\n" not in wartosc or not all(linia.strip() for linia in wartosc.splitlines()):
         return False
     forma = _FORMA_PRAWNA_NA_KONCU.search(wartosc)
     if forma is None:
-        return False
+        return _potwierdzona_nazwa_jdg(tekst, start, wartosc)
 
     nazwa = wartosc[:forma.start()].rstrip()
     wiersze = [linia.strip() for linia in nazwa.splitlines()]
@@ -354,8 +378,7 @@ def _jest_jedna_nazwa(tekst, start, wartosc, slowa):
 
     # Samo dopasowanie nazwy zakończonej formą prawną może objąć dwa podmioty.
     # Potwierdzeniem jest zapis w jednym wierszu lub ciągłość gramatyczna na przełamaniu.
-    zapis_jednowierszowy = r"[ \t]+".join(map(re.escape, wartosc.split()))
-    if re.search(rf"(?<!\w){zapis_jednowierszowy}(?!\w)", tekst, re.IGNORECASE):
+    if _wystepuje_w_jednym_wierszu(tekst, wartosc):
         return True
     return _zgodnosc_na_lamaniu(nazwa, start, slowa)
 

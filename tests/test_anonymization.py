@@ -193,6 +193,37 @@ class AnonymizationTest(unittest.TestCase):
         self.assertIn("Zamawiający:\n[PODMIOT_1]\nWniosek", text)
         self.assertEqual(mapping, {"[PODMIOT_1]": wrapped, "[PODMIOT_2]": single_line})
 
+    def test_wrapped_sole_trader_name_after_business_label_gets_one_marker(self):
+        for name in ("WZOR-TECH\nMaria Kowalska", "WZOR-TECH Maria\nKowalska"):
+            with self.subTest(name=name):
+                text, mapping = self.mask(f"prowadząca działalność pod firmą {name}, NIP: 0000000001")
+                self.assertIn("pod firmą [PODMIOT_1], NIP: [NIP_1]", text)
+                self.assertEqual(mapping["[PODMIOT_1]"], name)
+
+    def test_wrapped_sole_trader_name_in_offer_table_requires_corroboration(self):
+        name = "WZOR-TECH Maria\nKowalska"
+        row = f"1\n{name}\nPoznań /\n0000000001"
+        source = "Odwołujący: WZOR-TECH Maria Kowalska\n" + row
+        text, mapping = self.mask(source)
+        self.assertIn("1\n[PODMIOT_2]\n", text)
+        self.assertEqual(mapping["[PODMIOT_2]"], name)
+
+        text, mapping = self.mask(row)
+        self.assertIn("1\n[PODMIOT_1]\n[PODMIOT_2]\n", text)
+        self.assertEqual([mapping["[PODMIOT_1]"], mapping["[PODMIOT_2]"]], name.splitlines())
+
+    def test_separately_listed_company_and_person_are_not_joined_by_same_name_elsewhere(self):
+        text, mapping = self.mask(
+            "Wniosek złożony przez WZOR-TECH Maria Kowalska\n"
+            "WZOR-TECH\nMaria Kowalska"
+        )
+        self.assertTrue(text.endswith("[PODMIOT_2]\n[PODMIOT_3]"))
+        self.assertEqual(mapping, {
+            "[PODMIOT_1]": "WZOR-TECH Maria Kowalska",
+            "[PODMIOT_2]": "WZOR-TECH",
+            "[PODMIOT_3]": "Maria Kowalska",
+        })
+
     def test_legal_registration_and_tax_identifier_in_offer_table(self):
         text, mapping = self.mask(
             "nr wpisu na listę: KR/Adw/1987\n"
