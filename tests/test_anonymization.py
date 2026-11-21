@@ -16,7 +16,6 @@ class AnonymizationTest(unittest.TestCase):
         text, mapping = self.pseudonymize(source, self.analyzer)
         restored = re.sub(r"\[[A-Z_]+_\d+\]", lambda match: mapping[match[0]], text)
         self.assertEqual(restored, source)
-        self.assertEqual(text.count("\n"), source.count("\n"))
         return text, mapping
 
     def test_contact_and_registration_fields_keep_labels_and_date(self):
@@ -128,10 +127,33 @@ class AnonymizationTest(unittest.TestCase):
             "2.1. Treść\nTytuł: opłata skarbowa w przetargu DI.579.2026 CEN2612345678901\n"
             "Numer referencyjny\nCEN2612345678901"
         )
-        self.assertIn("Zamawiający:\n[PODMIOT_1]\n[PODMIOT_2]", text)
+        self.assertIn("Zamawiający:\n[PODMIOT_1]\n2.1.", text)
         self.assertIn("2.1.", text)
         self.assertIn("Tytuł: opłata skarbowa w przetargu [NR_SPRAWY_1] [NR_TRANSAKCJI_1]", text)
-        self.assertEqual(mapping["[PODMIOT_2]"], "odpowiedzialnością")
+        self.assertEqual(
+            mapping["[PODMIOT_1]"], "Przykładowa Firma Spółka z ograniczoną\nodpowiedzialnością"
+        )
+
+    def test_wrapped_company_name_keeps_one_marker(self):
+        examples = (
+            ("adres do korespondencji: ", "Kancelaria Przykład Spółka z ograniczoną\nodpowiedzialnością"),
+            ("Odwołujący:\n", "Przykładowe Biuro\nTechnologiczne Spółka Akcyjna"),
+            ("Zamawiający:\n", "Wzorcowe Usługi sp. z\r\n  o.o."),
+        )
+        for label, name in examples:
+            with self.subTest(label=label):
+                text, mapping = self.mask(f"{label}{name}, ul. Pogodna 17, 65-001 Zielona Góra")
+                self.assertIn(f"{label}[PODMIOT_1], [ULICA_1]", text)
+                self.assertEqual(
+                    [value for tag, value in mapping.items() if tag.startswith("[PODMIOT_")], [name]
+                )
+
+    def test_two_company_names_across_lines_get_separate_markers(self):
+        first = "Przykładowa Firma Spółka z ograniczoną\nodpowiedzialnością"
+        second = "Wzorcowe Usługi Spółka Akcyjna"
+        text, mapping = self.mask(f"Zamawiający:\n{first}\nOdwołujący:\n{second}")
+        self.assertEqual(text, "Zamawiający:\n[PODMIOT_1]\nOdwołujący:\n[PODMIOT_2]")
+        self.assertEqual(mapping, {"[PODMIOT_1]": first, "[PODMIOT_2]": second})
 
     def test_legal_registration_and_tax_identifier_in_offer_table(self):
         text, mapping = self.mask(

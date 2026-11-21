@@ -221,6 +221,7 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
 
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
+_FORMA_PRAWNA_NA_KONCU = re.compile(rf"{_FORMA_PRAWNA}\Z", re.IGNORECASE)
 _POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA", "PL_FIRMA", "PL_NIP", "PL_TRANSAKCJA", "PL_IBAN"}
 _FORMATY_JEDNOZNACZNE = {"PL_IBAN", "PL_TED", "PL_BZP", "PL_TRANSAKCJA", "PL_WPIS_ZAWODOWY"}
 _NAGLOWKI = re.compile(
@@ -298,7 +299,17 @@ def _czyste_zakresy(tekst, zakresy, *, nlp=False):
         etykieta = " ".join(wartosc.casefold().split()).strip(".,:")
         if nlp and (etykieta in _ETYKIETY_DOKUMENTU or _FORMY_PRAWNE.fullmatch(wartosc.strip())):
             continue
-        # Znacznik na każdą linię pozwala zachować łamanie tekstu i odtworzyć go z mapy.
+        # Jawna forma prawna pozwala zachować nazwę jako jedną wartość mimo łamania wierszy.
+        # Pusty wiersz może oddzielać akapity lub strony, więc nie łączymy go ze znacznikiem.
+        if (
+            ETYK[typ] == "PODMIOT"
+            and "\n" in wartosc
+            and _FORMA_PRAWNA_NA_KONCU.search(wartosc.rstrip())
+            and all(linia.strip() for linia in wartosc.splitlines())
+        ):
+            yield start + len(wartosc) - len(wartosc.lstrip()), start + len(wartosc.rstrip()), typ
+            continue
+        # Dla pozostałych wartości zachowaj podziały wierszy w tekście.
         for linia in re.finditer(r"[^\r\n]+", wartosc):
             segment = linia[0]
             if segment.strip():
