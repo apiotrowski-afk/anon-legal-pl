@@ -41,6 +41,20 @@ Lub: `pip install -r requirements.txt`.
 
 ## Użycie
 
+**API Pythona**
+
+Zainstaluj pakiet z tego repozytorium poleceniem `pip install '.[pdf]'`. Model spaCy oraz Tesseract instaluj osobno. Pakiet udostępnia funkcje odczytu całego PDF-a i podstawiania znaczników wraz z mapą.
+
+```python
+from anon_legal_pl.anonimizuj import pseudonimizuj, zbuduj_analizator
+from anon_legal_pl.ocr import pdf_na_tekst
+
+analizator = zbuduj_analizator("pl_core_news_lg")
+tekst, mapa = pseudonimizuj(pdf_na_tekst("akta.pdf"), analizator)
+```
+
+Reguły rozpoznają m.in. polskie telefony z etykietą, KRS, numery wpisów zawodowych i numery transakcji w formacie `CEN` oraz 13 cyfr. Powtórzenia tego samego numeru transakcji dostają ten sam znacznik. Adres przy ul. Postępu pozostaje czytelny, gdy dokument wskazuje przy nim Krajową Izbę Odwoławczą.
+
 **CLI:**
 ```bash
 python anonimizuj.py akta.docx wynik.txt

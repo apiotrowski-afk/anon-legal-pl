@@ -1,0 +1,78 @@
+import re
+import unittest
+from importlib.util import find_spec
+
+
+@unittest.skipUnless(find_spec("pl_core_news_md"), "Test wymaga polskiego modelu z obrazu Docker")
+class AnonymizationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from anon_legal_pl.anonimizuj import pseudonimizuj, zbuduj_analizator
+
+        cls.analyzer = zbuduj_analizator("pl_core_news_md")
+        cls.pseudonymize = staticmethod(pseudonimizuj)
+
+    def mask(self, source):
+        text, mapping = self.pseudonymize(source, self.analyzer)
+        restored = re.sub(r"\[[A-Z_]+_\d+\]", lambda match: mapping[match[0]], text)
+        self.assertEqual(restored, source)
+        self.assertEqual(text.count("\n"), source.count("\n"))
+        return text, mapping
+
+    def test_contact_and_registration_fields_keep_labels_and_date(self):
+        source = (
+            "Odwołujący:\nPrzykładowa Firma sp. z o.o.\n"
+            "ul. Nowe Ogrody 17A, 80-001 Gdańsk\n"
+            "KRS: 0000123456, tel. +48 58 123 45 67, e-mail: kontakt@example.org\n"
+            "Data wniesienia: 21.11.2026\nNr klienta\n987654\nnumer telefonu +48 58 123 45 67."
+        )
+        text, mapping = self.mask(source)
+
+        for tag, value in {
+            "PODMIOT": "Przykładowa Firma sp. z o.o.",
+            "ULICA": "ul. Nowe Ogrody 17A",
+            "KOD_POCZTOWY": "80-001",
+            "KRS": "0000123456",
+            "TELEFON": "+48 58 123 45 67",
+            "EMAIL": "kontakt@example.org",
+            "NR_KLIENTA": "987654",
+        }.items():
+            with self.subTest(tag=tag):
+                self.assertEqual(mapping[f"[{tag}_1]"], value)
+                self.assertNotIn(value, text)
+        for label in ("Odwołujący:", "KRS:", "tel.", "e-mail:", "21.11.2026"):
+            self.assertIn(label, text)
+        self.assertEqual(text.count("[TELEFON_1]"), 2)
+
+    def test_public_section_number_is_not_masked_as_ip_address(self):
+        text, _ = self.mask("11.1.3.1\nTytuł ogłoszenia")
+        self.assertIn("11.1.3.1", text)
+
+    def test_transaction_number_uses_the_same_marker_in_both_fields(self):
+        text, mapping = self.mask(
+            "Tytuł\nOpłata skarbowa CEN2612345678901\n"
+            "Numer referencyjny\nCEN2612345678901"
+        )
+        self.assertEqual(mapping["[NR_TRANSAKCJI_1]"], "CEN2612345678901")
+        self.assertEqual(text.count("[NR_TRANSAKCJI_1]"), 2)
+        self.assertIn("Numer referencyjny\n[NR_TRANSAKCJI_1]", text)
+
+    def test_professional_registrations_are_masked(self):
+        text, mapping = self.mask(
+            "adw. Anna Kowalska (nr wpisu na listę: WA 12345)\n"
+            "r. pr. Jan Nowak (numer wpisu na listę radców prawnych: GD-67890)"
+        )
+        self.assertEqual(mapping["[NR_WPISU_1]"], "WA 12345")
+        self.assertEqual(mapping["[NR_WPISU_2]"], "GD-67890")
+        self.assertIn("nr wpisu na listę: [NR_WPISU_1]", text)
+        self.assertIn("numer wpisu na listę radców prawnych: [NR_WPISU_2]", text)
+
+    def test_kio_address_is_public_under_its_heading(self):
+        address = "ul. Postępu 17A\n02-676 Warszawa"
+        text, mapping = self.mask(
+            f"Odwołujący:\n{address}\nPrezes Krajowej Izby Odwoławczej\n{address}"
+        )
+        self.assertEqual(text.count(address), 1)
+        self.assertIn(f"Prezes Krajowej Izby Odwoławczej\n{address}", text)
+        self.assertEqual(mapping["[ULICA_1]"], "ul. Postępu 17A")
+        self.assertEqual(mapping["[KOD_POCZTOWY_1]"], "02-676")
