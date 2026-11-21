@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anon-legal-pl"
+version = "0.1.0"
+description = "Lokalna pseudonimizacja polskiego tekstu i odczyt PDF z OCR"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["presidio-analyzer", "spacy>=3.4"]
+
+[project.optional-dependencies]
+pdf = ["PyMuPDF", "pytesseract", "Pillow"]
+
+[tool.setuptools.packages.find]
+include = ["anon_legal_pl*"]

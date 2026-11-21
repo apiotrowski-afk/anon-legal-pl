@@ -4,8 +4,7 @@
 ui.py — lokalny UI do anonimizacji akt (Streamlit). 100% offline.
 
 Wsad wielu plików naraz, zapis wyników (.txt) do wskazanego folderu.
-Importuje logikę z anonimizuj.py oraz (dla PDF) z ocr.py — wszystkie trzy
-pliki muszą leżeć w tym samym folderze.
+Używa tej samej funkcji pseudonimizacji i czytnika PDF co CLI.
 
 Uruchomienie (w aktywnym venv, w folderze ze skryptami):
   pip install streamlit
@@ -13,7 +12,8 @@ Uruchomienie (w aktywnym venv, w folderze ze skryptami):
 """
 import os, re, json, tempfile
 import streamlit as st
-from anonimizuj import zbuduj_analizator, bielik_dopnij, wczytaj, ETYK
+from anon_legal_pl.anonimizuj import pseudonimizuj, zbuduj_analizator
+from anonimizuj import bielik_dopnij, wczytaj
 
 try:
     from ocr import pdf_na_tekst
@@ -28,29 +28,10 @@ def analizator(model):
     return zbuduj_analizator(model)
 
 def anonimizuj_tekst(tekst, analyzer, prog, bielik_model=None):
-    wyniki = analyzer.analyze(text=tekst, language="pl", score_threshold=prog)
-    spans = [(r.start, r.end, r.entity_type) for r in wyniki]
-    if bielik_model:
-        for frag in set(bielik_dopnij(tekst, bielik_model)):
-            for m in re.finditer(re.escape(frag), tekst):
-                spans.append((m.start(), m.end(), "PERSON"))
-    spans = sorted(set(spans), key=lambda x: (x[0], -(x[1] - x[0])))
-    scal, ost = [], -1
-    for s, e, t in spans:
-        if s >= ost:
-            scal.append((s, e, t)); ost = e
-    licz, mapa, pseudo = {}, {}, {}
-    def tag(txt, typ):
-        if txt in pseudo:
-            return pseudo[txt]
-        licz[typ] = licz.get(typ, 0) + 1
-        t = f"[{ETYK.get(typ, typ)}_{licz[typ]}]"
-        pseudo[txt] = t; mapa[t] = txt
-        return t
-    wynik = tekst
-    for s, e, typ in sorted(scal, key=lambda x: -x[0]):
-        wynik = wynik[:s] + tag(tekst[s:e], typ) + wynik[e:]
-    return wynik, mapa, len(scal)
+    dodatkowe_osoby = bielik_dopnij(tekst, bielik_model) if bielik_model else ()
+    wynik, mapa = pseudonimizuj(tekst, analyzer, prog, dodatkowe_osoby=dodatkowe_osoby)
+    liczba = sum(1 for tag in re.findall(r"\[[A-Z_]+_\d+\]", wynik) if tag in mapa)
+    return wynik, mapa, liczba
 
 st.title("Anonimizacja akt — lokalnie")
 st.caption("Wszystko liczy się na tym komputerze. Wynik to pierwsze przejście — "
