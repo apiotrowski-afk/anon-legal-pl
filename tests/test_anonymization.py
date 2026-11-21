@@ -158,3 +158,44 @@ class AnonymizationTest(unittest.TestCase):
         self.assertIn("przez [PODMIOT_1] oraz [PODMIOT_2],", text)
         self.assertEqual(mapping["[PODMIOT_1]"], "Państwowa Akademia Nauk Stosowanych w Zielonym Mieście")
         self.assertEqual(mapping["[PODMIOT_2]"], "Szpital Miejski im. dr. Jana Kowalskiego w Zielonym Mieście")
+
+    def test_case_numbers_from_expected_fields(self):
+        for source, value in (
+            ("Numer wewnętrzny: ABC-042.11", "ABC-042.11"),
+            ("Numer wewnętrzny:\nV.ROZ.2710.125.2025", "V.ROZ.2710.125.2025"),
+            ("WPIS OD ODW., ZAM: ZESPÓŁ SZKÓŁ, ZSCKR/822/2025, BUDOWA DR. POŻAR.", "ZSCKR/822/2025"),
+        ):
+            with self.subTest(source=source):
+                text, mapping = self.mask(source)
+                self.assertIn("[NR_SPRAWY_1]", text)
+                self.assertEqual(mapping["[NR_SPRAWY_1]"], value)
+        text, mapping = self.mask("Dokumentacja: https://example.org/ARCH/822/2025")
+        self.assertFalse(any(tag.startswith("[NR_SPRAWY_") for tag in mapping))
+
+    def test_short_account_number_requires_a_label(self):
+        number = "121111222233334444555566"
+        text, mapping = self.mask(f"Rachunek źródłowy: {number}\nPowtórzenie: {number}")
+        self.assertEqual(mapping, {"[RACHUNEK_1]": number})
+        self.assertEqual(text.count("[RACHUNEK_1]"), 2)
+
+        text, mapping = self.mask("Z rachunku:\n1211 1122 2233\n3344 4455 5566")
+        self.assertIn("[RACHUNEK_1]\n[RACHUNEK_2]", text)
+        self.assertEqual(mapping["[RACHUNEK_1]"], "1211 1122 2233")
+        self.assertEqual(mapping["[RACHUNEK_2]"], "3344 4455 5566")
+
+        _, mapping = self.mask(f"Ciąg kontrolny: {number}")
+        self.assertFalse(any(tag.startswith("[RACHUNEK_") for tag in mapping))
+
+    def test_labelled_transactions_outside_cen(self):
+        for number in ("ABX-264021-45", "OP/2025/0054.v2", "12111122223333444455556666"):
+            with self.subTest(number=number):
+                text, mapping = self.mask(f"Tytuł przelewu: opłata {number}\nNumer transakcji:\n{number}")
+                self.assertEqual(text.count("[NR_TRANSAKCJI_1]"), 2)
+                self.assertEqual(mapping["[NR_TRANSAKCJI_1]"], number)
+
+        text, mapping = self.mask("Identyfikator operacji: OPS.123/45")
+        self.assertIn("Identyfikator operacji: [NR_TRANSAKCJI_1]", text)
+        self.assertEqual(mapping["[NR_TRANSAKCJI_1]"], "OPS.123/45")
+
+        _, mapping = self.mask("Numer transakcji: brak danych\nData transakcji: 2025-10-09")
+        self.assertFalse(any(tag.startswith("[NR_TRANSAKCJI_") for tag in mapping))

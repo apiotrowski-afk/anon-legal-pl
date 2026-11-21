@@ -41,16 +41,35 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 _ODSTEP = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)?"
 _DYZYWIZ = r"[-‐‑–]"
-_IBAN_PL = rf"(?<!\w)(?:PL{_ODSTEP})?\d{{2}}(?:{_ODSTEP}\d{{4}}){{6}}(?!\w)"
+_ETYKIETA_RACHUNKU = (
+    r"(?:(?:nr\.?|numer)\s+(?:rachunku|konta)|z\s+rachunku|na\s+rachunek|rachunek(?:\s+(?:źródłowy|docelowy|bankowy|"
+    r"nadawcy|odbiorcy|płatnika|beneficjenta|zleceniodawcy|obciążany|uznawany))?)"
+)
+_IBAN_PL = (
+    rf"(?<!\w)(?:PL{_ODSTEP})?\d{{2}}(?:{_ODSTEP}\d{{4}}){{6}}(?!\w)"
+    rf"|(?<=\b{_ETYKIETA_RACHUNKU}{_ODSTEP}:?{_ODSTEP})(?:PL{_ODSTEP})?"
+    rf"\d(?:{_ODSTEP}\d){{23}}(?!\w|{_ODSTEP}\d)"
+)
 _TED = rf"(?<![\w/-])(?:\d{{6,8}}{_DYZYWIZ}20\d{{2}}|20\d{{2}}\s*/\s*S\s*\d{{1,3}}\s*{_DYZYWIZ}\s*\d{{6,8}})(?![\w/-])"
 _BZP = r"(?<![\w/-])20\d{2}\s*/\s*BZP\s*\d{8}(?:\s*/\s*\d{2}(?:\s*/\s*P)?)?(?![\w/-])"
 _KOD_SPRAWY = r"(?=[A-Z0-9./-]*\d)[A-Z][A-Z0-9]*(?:[./-][A-Z0-9]+)+"
+_ETYKIETA_SPRAWY = (
+    r"(?:(?:nr\.?|numer)\s+(?:referencyjny(?:\s+sprawy)?|wewnętrzny|postępowania)"
+    r"|(?:postępowani[eu]|przetargu)\s+nr\.?|w\s+przetargu|wewnętrzny\s+identyfikator|identyfikator\s+postępowania)"
+)
 _NUMER_SPRAWY = (
-    r"(?<![\w./-])[A-Z]{2,6}\.\d{1,5}(?:\.\d{1,5}){0,3}\.20\d{2}"
-    r"(?:\.[A-Z]{1,6})?(?![\w/-]|\.[A-Z0-9])"
-    r"|(?<=\b(?:(?:nr\.?|numer)\s+(?:referencyjny(?:\s+sprawy)?|postępowania)"
-    r"|(?:postępowani[eu]|przetargu)\s+nr\.?|w\s+przetargu|wewnętrzny\s+identyfikator)"
-    r"\s*:?\s*)" + _KOD_SPRAWY + r"(?![\w/-])"
+    r"(?<![\w./@-])(?:[A-Z]{1,10}\.){1,3}\d{1,5}(?:\.\d{1,5}){0,3}\.20\d{2}"
+    r"(?:\.[A-Z]{1,6})?(?![\w/@-]|\.[A-Z0-9])"
+    r"|(?<![\w./@-])(?-i:[A-Z]{2,12}(?:/[A-Z]{1,10}){0,2})/\d{1,8}/20\d{2}"
+    r"(?![\w/@-]|\.[A-Z0-9])"
+    rf"|(?<=\b{_ETYKIETA_SPRAWY}\s*:?\s*){_KOD_SPRAWY}(?![\w/-])"
+)
+_ETYKIETA_TRANSAKCJI = r"(?:nr\.?|numer|identyfikator)\s+(?:transakcji(?:\s+operacji)?|operacji(?:\s+bankowej)?)"
+_NUMER_TRANSAKCJI = (
+    r"\bCEN\d{13}\b"
+    rf"|(?<=\b{_ETYKIETA_TRANSAKCJI}{_ODSTEP}:?{_ODSTEP})"
+    r"(?!(?:\d{4}[./-]\d{2}[./-]\d{2}|\d{2}[./-]\d{2}[./-]\d{4})(?![\w/-]))"
+    r"(?=[A-Z0-9._/-]*\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*(?![\w/-])"
 )
 _SLOWO_PROPRIUM = r"(?-i:[A-ZĄĆĘŁŃÓŚŹŻ][^\W\d_]*(?:[-’'][A-ZĄĆĘŁŃÓŚŹŻ][^\W\d_]*)*)"
 _MIASTO = rf"{_SLOWO_PROPRIUM}(?:[ \t]+(?:nad|pod|w|{_SLOWO_PROPRIUM})){{0,3}}"
@@ -159,7 +178,7 @@ def zbuduj_analizator(model="pl_core_news_lg"):
         ("PL_KRS", r"(?<=\bKRS[ \t]*[:.]?[ \t]*(?:\n[ \t]*)?)\d{10}\b"),
         ("PL_KOD_POCZTOWY", r"(?<![\w-])\d{2}-\d{3}(?![\w-])"),
         ("PL_KLIENT", r"(?<=\b(?:nr|numer)[ \t]+klienta[ \t]*:?[ \t]*(?:\n[ \t]*)?)\d+\b"),
-        ("PL_TRANSAKCJA", r"\bCEN\d{13}\b"),
+        ("PL_TRANSAKCJA", _NUMER_TRANSAKCJI),
         ("PL_NUMER_SPRAWY", _NUMER_SPRAWY),
         ("PL_TED", _TED),
         ("PL_BZP", _BZP),
@@ -202,13 +221,13 @@ ETYK = {"PERSON": "OSOBA", "LOCATION": "ADRES", "ORGANIZATION": "PODMIOT",
 
 _TYPY_NER = {"PERSON", "LOCATION", "ORGANIZATION"}
 _FORMY_PRAWNE = re.compile(_FORMA_PRAWNA, re.IGNORECASE)
-_POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA", "PL_FIRMA", "PL_NIP"}
+_POWTARZANE_POLA = {"PL_NUMER_SPRAWY", "PL_TYTUL_ZAMOWIENIA", "PL_FIRMA", "PL_NIP", "PL_TRANSAKCJA", "PL_IBAN"}
 _FORMATY_JEDNOZNACZNE = {"PL_IBAN", "PL_TED", "PL_BZP", "PL_TRANSAKCJA", "PL_WPIS_ZAWODOWY"}
 _NAGLOWKI = re.compile(
     rf"^[ \t]*(?:pełnomocnictwo[ \t]+)?(?P<chronione>{_ROLE}|pełnomocnik|tytuł(?: zamówienia)?"
     r"|kwota|identyfikator procedury|wewnętrzny identyfikator|nr klienta|data transakcji"
-    r"|numer referencyjny(?: sprawy)?|numer postępowania|numer (?:publikacji )?ogłoszenia"
-    r"|KRS|NIP|REGON|miejscowość)(?=[ \t]*:|[ \t]*$)"
+    rf"|{_ETYKIETA_SPRAWY}|{_ETYKIETA_TRANSAKCJI}|{_ETYKIETA_RACHUNKU}"
+    r"|numer (?:publikacji )?ogłoszenia|KRS|NIP|REGON|miejscowość)(?=[ \t]*:|[ \t]*$)"
     r"|^[ \t]*(?P<numeracja>\d{1,2}(?:\.\d{1,2}){1,5}\.?)(?=[ \t]|$)",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -226,7 +245,11 @@ _ETYKIETY_DOKUMENTU = {
 def _rozlaczne(zakresy):
     """Wybierz najdłuższy zakres przy wspólnym początku."""
     scalone, ostatni = [], -1
-    kolejnosc = sorted(set(zakresy), key=lambda x: (x[0], x[0] - x[1], x[2] not in _FORMATY_JEDNOZNACZNE, x[2]))
+    # Jawna etykieta transakcji rozstrzyga również zgodność formatu z numerem rachunku.
+    kolejnosc = sorted(
+        set(zakresy),
+        key=lambda x: (x[0], x[0] - x[1], x[2] != "PL_TRANSAKCJA", x[2] not in _FORMATY_JEDNOZNACZNE, x[2]),
+    )
     for start, koniec, typ in kolejnosc:
         if start >= ostatni:
             scalone.append((start, koniec, typ))
