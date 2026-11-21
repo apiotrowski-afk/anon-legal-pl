@@ -308,7 +308,7 @@ def _zakresy_nlp(tekst, start, koniec, typ, wykluczenia, konce):
 
 
 def _zgodnosc_na_lamaniu(nazwa, start, slowa):
-    granice = list(re.finditer(r"\S+(?=[ \t]*\r?\n[ \t]*(?P<dalej>\S+))", nazwa))
+    granice = list(re.finditer(r"\S+(?=[ \t]*\r?\n[ \t]*(?P<dalej>\S+)(?P<ogon>[^\r\n]*))", nazwa))
     if len(granice) != len(nazwa.splitlines()) - 1:
         return False
     for granica in granice:
@@ -322,6 +322,15 @@ def _zgodnosc_na_lamaniu(nazwa, start, slowa):
             lewe.morph.get(cecha) and lewe.morph.get(cecha) == prawe.morph.get(cecha)
             for cecha in ("Case", "Gender", "Number")
         ):
+            return False
+
+        # Przymiotnik jest samodzielnym dopowiedzeniem, jeśli jego wiersz nie ma innych słów.
+        # Wielowyrazowy wiersz może stanowić osobną nazwę, np. „Technologiczny Serwis”.
+        if lewe.pos_ == "ADJ":
+            poczatek_wiersza = nazwa.rfind("\n", 0, granica.start()) + 1
+            if nazwa[poczatek_wiersza:granica.start()].strip():
+                return False
+        elif granica["ogon"].strip():
             return False
     return True
 

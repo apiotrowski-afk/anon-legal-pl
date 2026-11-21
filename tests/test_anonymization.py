@@ -179,6 +179,13 @@ class AnonymizationTest(unittest.TestCase):
                 self.assertEqual(text, "Zamawiający:\n[PODMIOT_1]\n[PODMIOT_2]")
                 self.assertEqual(mapping, {"[PODMIOT_1]": first, "[PODMIOT_2]": second})
 
+    def test_company_starting_with_matching_adjective_is_not_a_continuation(self):
+        first = "Alfa Transport"
+        second = "Technologiczny Serwis sp. z o.o."
+        text, mapping = self.mask(f"Zamawiający:\n{first}\n{second}")
+        self.assertEqual(text, "Zamawiający:\n[PODMIOT_1]\n[PODMIOT_2]")
+        self.assertEqual(mapping, {"[PODMIOT_1]": first, "[PODMIOT_2]": second})
+
     def test_one_line_mention_confirms_name_wrapped_before_legal_form(self):
         wrapped = "Lunareth\nAutomatyka sp. z o.o."
         single_line = " ".join(wrapped.split())
