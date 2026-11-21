@@ -66,7 +66,7 @@ _LACZNIK_FIRMY = r"(?-i:i|w|we|im\.|dr\.|prof\.)"
 _CZESC_NAZWY = rf"(?:{_LACZNIK_FIRMY}|{_SLOWO_FIRMY})"
 _NAZWA_FIRMY = rf"{_SLOWO_FIRMY}(?:\s+{_CZESC_NAZWY}){{0,9}}\s+{_FORMA_PRAWNA}"
 _NAZWA_URZEDU = (
-    rf"(?-i:Gmina|Powiat|Miasto|Centrum|Szpital|Zarząd|Zakład|Urząd)"
+    rf"(?-i:Gmina|Powiat|Miasto|Centrum|Szpital|Zarząd|Zakład|Urząd|(?:Państwowa\s+)?Akademia|Uniwersytet|Politechnika)"
     rf"(?:\s+{_CZESC_NAZWY}){{0,9}}\s+{_SLOWO_FIRMY}"
 )
 _NAZWA_JDG = (
@@ -75,7 +75,7 @@ _NAZWA_JDG = (
 )
 _FIRMA = (
     rf"(?m)(?<=^[ \t]*|\b(?:{_ROLE}|oficjalna nazwa|nazwa)[ \t]*[:\r\n]\s*"
-    r"|\b(?:przez|prowadzi|dla|mocodawcą\s+jest|w\s+imieniu(?:\s+wykonawcy)?|pod\s+firmą)\s+"
+    r"|\b(?:przez|prowadzi|dla|oraz|mocodawcą\s+jest|w\s+imieniu(?:\s+wykonawcy)?|pod\s+firmą)\s+"
     r"|\b\d{1,2}\)[ \t]+)"
     rf"(?:{_NAZWA_FIRMY}|{_NAZWA_URZEDU}|{_NAZWA_JDG})"
     r"|(?<=\badres\s+do\s+korespondencji\s*:\s*)"

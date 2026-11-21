@@ -149,3 +149,12 @@ class AnonymizationTest(unittest.TestCase):
         )
         self.assertIn("Zamawiający:\n[PODMIOT_1]", text)
         self.assertEqual(mapping["[PODMIOT_1]"], "Szpital Miejski im. dr. Jana Kowalskiego w Zielonej Górze")
+
+    def test_multiple_public_institutions_in_procurement_description(self):
+        text, mapping = self.mask(
+            "prowadzonym przez Państwowa Akademia Nauk Stosowanych w Zielonym Mieście "
+            "oraz Szpital Miejski im. dr. Jana Kowalskiego w Zielonym Mieście, a w szczególności do:"
+        )
+        self.assertIn("przez [PODMIOT_1] oraz [PODMIOT_2],", text)
+        self.assertEqual(mapping["[PODMIOT_1]"], "Państwowa Akademia Nauk Stosowanych w Zielonym Mieście")
+        self.assertEqual(mapping["[PODMIOT_2]"], "Szpital Miejski im. dr. Jana Kowalskiego w Zielonym Mieście")
